@@ -1,0 +1,260 @@
+/* speed-limit -- Copyright (C) 2026 theunknownmuncher <theunknownmuncher@protonmail.com>
+ * SPDX-License-Identifier: GPL-3.0-or-later */
+/* -- AI GENERATED CODE (Qwen3.8 Flash Next) :: (2026-10-25) harness:openlumara
+   speed-limit sidebar panel styles. Kept module-scoped (.sls-*) so the core
+   sidebar and other module panels keep their own styling untouched. */
+
+.speed-limit-panel {
+    padding: 7px;
+    flex: 1;
+    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    gap: var(--gap, 6px);
+}
+
+.speed-limit-panel .sls-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2px 4px;
+}
+
+.speed-limit-panel .sls-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary, #999);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.speed-limit-panel .sls-icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 6px;
+    background: none;
+    color: var(--text-secondary, #999);
+    cursor: pointer;
+}
+
+.speed-limit-panel .sls-icon-btn:hover {
+    background: var(--bg-secondary, rgba(255, 255, 255, 0.06));
+    color: var(--text-primary, #eee);
+}
+
+.speed-limit-panel .sls-icon-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+.speed-limit-panel .sls-hint {
+    margin: 0 2px 4px 2px;
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--text-secondary, #999);
+}
+
+.speed-limit-panel .sls-section {
+    margin: 8px 2px 0 2px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary, #888);
+}
+
+.speed-limit-panel .sls-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 3px 4px;
+}
+
+.speed-limit-panel .sls-label {
+    font-size: 12.5px;
+    color: var(--text-primary, #ddd);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* toggle: mirrors the core settings toggle look */
+.speed-limit-panel .sls-toggle {
+    flex: none;
+    width: 36px;
+    height: 20px;
+    border: none;
+    border-radius: 10px;
+    background: var(--bg-tertiary, rgba(255, 255, 255, 0.14));
+    position: relative;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.speed-limit-panel .sls-toggle::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--text-secondary, #aaa);
+    transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.speed-limit-panel .sls-toggle.active {
+    background: var(--accent, #4a8cff);
+}
+
+.speed-limit-panel .sls-toggle.active::after {
+    transform: translateX(16px);
+    background: #fff;
+}
+
+.speed-limit-panel .sls-num {
+    flex: none;
+    width: 86px;
+    padding: 4px 6px;
+    font-size: 12.5px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+    background: var(--bg-secondary, rgba(255, 255, 255, 0.05));
+    color: var(--text-primary, #eee);
+}
+
+.speed-limit-panel .sls-num:focus {
+    outline: none;
+    border-color: var(--accent, #4a8cff);
+}
+
+.speed-limit-panel .sls-override .sls-select {
+    flex: 1;
+    min-width: 0;
+    padding: 4px 6px;
+    font-size: 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+    background: var(--bg-secondary, rgba(255, 255, 255, 0.05));
+    color: var(--text-primary, #eee);
+}
+
+.speed-limit-panel .sls-override .sls-num {
+    width: 72px;
+}
+
+.speed-limit-panel .sls-remove,
+.speed-limit-panel .sls-add-btn {
+    flex: none;
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 6px;
+    background: none;
+    color: var(--text-secondary, #999);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.speed-limit-panel .sls-remove:hover {
+    background: rgba(255, 90, 90, 0.15);
+    color: #ff7b7b;
+}
+
+.speed-limit-panel .sls-add-btn:hover {
+    background: var(--bg-secondary, rgba(255, 255, 255, 0.08));
+    color: var(--text-primary, #eee);
+}
+
+.speed-limit-panel .sls-empty {
+    padding: 2px 4px;
+    font-size: 11.5px;
+    color: var(--text-secondary, #888);
+    font-style: italic;
+}
+
+.speed-limit-panel .sls-footer {
+    margin-top: 10px;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.speed-limit-panel .sls-save {
+    padding: 6px 14px;
+    font-size: 12.5px;
+    font-weight: 600;
+    border: none;
+    border-radius: 7px;
+    background: var(--accent, #4a8cff);
+    color: #fff;
+    cursor: pointer;
+}
+
+.speed-limit-panel .sls-save:hover {
+    filter: brightness(1.1);
+}
+
+.speed-limit-panel .sls-save:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.speed-limit-panel .sls-notice {
+    padding: 5px 8px;
+    font-size: 11.5px;
+    border-radius: 6px;
+    background: rgba(80, 200, 120, 0.12);
+    color: #7fd8a0;
+}
+
+.speed-limit-panel .sls-error {
+    padding: 5px 8px;
+    font-size: 11.5px;
+    border-radius: 6px;
+    background: rgba(255, 90, 90, 0.12);
+    color: #ff8f8f;
+}
+
+/* stream-type + override rows: rate input paired with its own limit toggle */
+.speed-limit-panel .sls-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+}
+
+.speed-limit-panel .sls-toggle.sls-toggle-sm {
+    width: 28px;
+    height: 16px;
+    border-radius: 8px;
+}
+
+.speed-limit-panel .sls-toggle.sls-toggle-sm::after {
+    top: 3px;
+    width: 10px;
+    height: 10px;
+}
+
+.speed-limit-panel .sls-toggle.sls-toggle-sm.active::after {
+    transform: translateX(12px);
+}
+
+/* dimmed: the limit for this row is switched off, so its rate is unused */
+.speed-limit-panel .sls-off .sls-label {
+    opacity: 0.55;
+}
+
+.speed-limit-panel .sls-num:disabled {
+    opacity: 0.45;
+    cursor: default;
+}

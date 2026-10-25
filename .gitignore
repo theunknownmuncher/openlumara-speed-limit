@@ -1,0 +1,28 @@
+# Python bytecode (module.py is imported by the openlumara server, which
+# drops __pycache__/ next to it on every boot)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# test / tooling caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# editor swap files and workspace dirs
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# local-only artifacts (nothing here is tracked; listed so stray files
+# left behind while developing the webui assets never slip into a commit)
+*.log
+*.bak
+*.bak-*
+.env

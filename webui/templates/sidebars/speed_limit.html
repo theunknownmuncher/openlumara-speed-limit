@@ -1,0 +1,103 @@
+{# speed-limit -- Copyright (C) 2026 theunknownmuncher <theunknownmuncher@protonmail.com>
+   SPDX-License-Identifier: GPL-3.0-or-later #}
+{# -- AI GENERATED CODE (Qwen3.8 Flash Next) :: (2026-10-25) harness:openlumara
+   speed-limit sidebar tab: discovered via the sidebars/ convention.
+   logic lives in assets/js/speed_limit_panel.js (SPEED_LIMIT_PANEL global). #}
+<div class="speed-limit-panel" x-data="speedLimitComponent()" x-intersect.enter="refresh()">
+
+    <div class="sls-header">
+        <span class="sls-title">Speed Limit</span>
+        <button type="button" class="sls-icon-btn" title="Reload speed limit settings" @click="refresh()">
+            {% include 'svg/reload.svg' %}
+        </button>
+    </div>
+
+    <div class="sls-hint">
+        Visual speed limit for live streaming — generation speed is never
+        affected. Turn a limit off (or set its rate to 0) to stream that text
+        at full speed.
+    </div>
+
+    <div class="sls-row sls-master">
+        <label class="sls-label">Speed limit enabled</label>
+        <button type="button" class="sls-toggle" :class="{ active: enabled }" @click="enabled = !enabled"></button>
+    </div>
+
+    <div class="sls-section">Characters per minute</div>
+
+    <template x-for="type in streamTypes" :key="type.key">
+        <div class="sls-row sls-stream" :class="{ 'sls-off': !limits[type.key] }">
+            <label class="sls-label" :title="type.hint" x-text="type.label"></label>
+            <div class="sls-controls">
+                <input type="number" class="sls-num" min="0" step="50" :value="rates[type.key]"
+                       :disabled="!limits[type.key]" :title="'characters per minute for ' + type.label + ' (0 = no limit)'"
+                       @input="rates[type.key] = Math.max(0, parseFloat($event.target.value) || 0)">
+                <button type="button" class="sls-toggle" :class="{ active: limits[type.key] }"
+                        :title="limits[type.key] ? 'limited — click to stream at full speed' : 'no limit — click to apply the rate'"
+                        @click="limits[type.key] = !limits[type.key]"></button>
+            </div>
+        </div>
+    </template>
+
+    <div class="sls-section">Per-tool overrides</div>
+
+    <template x-if="rows.length === 0">
+        <div class="sls-empty">no overrides — the global tool limit applies to every tool</div>
+    </template>
+
+    <template x-for="(row, index) in rows" :key="row.tool">
+        <div class="sls-row sls-override" :class="{ 'sls-off': !row.enabled }">
+            <select class="sls-select" x-model="row.tool" :title="row.tool">
+                <template x-if="!toolNames.includes(row.tool)">
+                    <option :value="row.tool" x-text="row.tool + ' (inactive)'"></option>
+                </template>
+                <template x-for="name in optionsFor(row)" :key="name">
+                    <option :value="name" x-text="name"></option>
+                </template>
+            </select>
+            <input type="number" class="sls-num" min="0" step="50" :value="row.rate"
+                   :disabled="!row.enabled" :title="'characters per minute for ' + row.tool + ' (0 = no limit)'"
+                   @input="row.rate = Math.max(0, parseFloat($event.target.value) || 0)">
+            <button type="button" class="sls-toggle sls-toggle-sm" :class="{ active: row.enabled }"
+                    :title="row.enabled ? 'limited — click to remove this tool\'s limit' : 'no limit — click to apply the rate'"
+                    @click="row.enabled = !row.enabled"></button>
+            <button type="button" class="sls-remove" title="Remove override" @click="removeRow(row)">&times;</button>
+        </div>
+    </template>
+
+    <div class="sls-row sls-override sls-add">
+        <select class="sls-select" x-model="newRow.tool" title="Pick a tool to override">
+            <option value="" disabled selected>pick tool..</option>
+            <template x-for="name in availableNewTools()" :key="name">
+                <option :value="name" x-text="name"></option>
+            </template>
+        </select>
+        <input type="number" class="sls-num" min="0" step="50" x-model.number="newRow.rate"
+               title="characters per minute for this tool">
+        <button type="button" class="sls-add-btn" title="Add override" @click="addRow()">+</button>
+    </div>
+
+    <div class="sls-section">Webui extension</div>
+
+    <div class="sls-row">
+        <label class="sls-label" title="Loads the pacing script and this panel">Pacing scripts loaded</label>
+        <button type="button" class="sls-toggle" :class="{ active: enableWebuiExtension }" @click="enableWebuiExtension = !enableWebuiExtension"></button>
+    </div>
+
+    <template x-if="!enableWebuiExtension">
+        <div class="sls-notice">with this off, the speed limit stops working right away and this panel disappears after the next page reload.</div>
+    </template>
+
+    <div class="sls-footer">
+        <button type="button" class="sls-save" @click="save()" :disabled="saving || !loaded">
+            <span x-text="saving ? 'saving..' : 'Save &amp; apply'"></span>
+        </button>
+    </div>
+
+    <template x-if="notice"><div class="sls-notice" x-text="notice"></div></template>
+    <template x-if="error"><div class="sls-error" x-text="error"></div></template>
+    <template x-if="adminDisabled()">
+        <div class="sls-notice">admin settings are disabled: saving is blocked until 'enable_admin_settings' is on.</div>
+    </template>
+
+</div>

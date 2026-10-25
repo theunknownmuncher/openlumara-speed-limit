@@ -1,0 +1,36 @@
+{# speed-limit -- Copyright (C) 2026 theunknownmuncher <theunknownmuncher@protonmail.com>
+   SPDX-License-Identifier: GPL-3.0-or-later #}
+{# -- AI GENERATED CODE (Qwen3.8 Flash Next) :: (2026-10-25) harness:openlumara
+   speed-limit: head slot. Renders this module's settings into the page as
+   window.SPEED_LIMIT_CONFIG (module_config is injected by the extension
+   system) so the pacer starts with the right rates before the first stream;
+   js/speed_limit.js then keeps them fresh via the module's live broadcasts
+   and a config refresh at the start of every stream. #}
+
+{% macro head() %}
+{% set enabled = module_config.get('enabled') %}
+{% set content_on = module_config.get('content_limit_enabled') %}
+{% set reasoning_on = module_config.get('reasoning_limit_enabled') %}
+{% set tool_on = module_config.get('tool_limit_enabled') %}
+{% set content = module_config.get('content_chars_per_minute') %}
+{% set reasoning = module_config.get('reasoning_chars_per_minute') %}
+{% set tool = module_config.get('tool_calls_chars_per_minute') %}
+{% set overrides = module_config.get('tool_rate_overrides') %}
+{% if overrides is not mapping %}{% set overrides = {} %}{% endif %}
+<script>
+window.SPEED_LIMIT_CONFIG = {{ {
+    'enabled': enabled if enabled is boolean else true,
+    'limits': {
+        'content': content_on if content_on is boolean else true,
+        'reasoning': reasoning_on if reasoning_on is boolean else true,
+        'tool': tool_on if tool_on is boolean else true
+    },
+    'rates': {
+        'content': content if content is number else 900,
+        'reasoning': reasoning if reasoning is number else 900,
+        'tool': tool if tool is number else 900
+    },
+    'toolOverrides': overrides
+} | tojson }};
+</script>
+{% endmacro %}
