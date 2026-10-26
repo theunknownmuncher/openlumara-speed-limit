@@ -13,8 +13,9 @@
  * characters/minute. Every paced stream type has its own on/off limit toggle
  * and its own rate:
  *
- *   content    message output          (segment.content)
- *   reasoning  thinking text           (segment.reasoning_content)
+ *   content    message output          (step.content and the final answer
+ *                                      bubble's content, turn_final)
+ *   reasoning  thinking text           (step.reasoning_content)
  *   tool:<name> tool call text         (_metadata.args_parsed values and
  *                                      _metadata.response, per tool, with an
  *                                      optional per-tool override that can use
@@ -25,25 +26,39 @@
  * A limit toggle that is off, or a rate of 0, means "no limit" for that stream
  * type: its text is revealed as soon as it arrives.
  *
- * Process steps are never affected: EVERY turn_stream message is forwarded to
- * the store the moment it arrives, so the agent chain's structure — step
- * numbers, step_status transitions, tool cards, the final-content split and
+ * Protocol note: since the step-grouping move to core (upstream commit
+ * c47b8d4), the backend no longer broadcasts turn_stream segments. It ships
+ * cumulative snapshots instead:
+ *
+ *   {type: "turn_step",  step: {...}}      one step, keyed by step.step,
+ *                                          carrying reasoning_content,
+ *                                          content and tool_calls
+ *   {type: "turn_final", messages: [...]}  the provisional final answer
+ *                                          bubble; [] retracts it back into
+ *                                          the chain
+ *
+ * Process steps are never affected: EVERY turn_step / turn_final message is
+ * forwarded to the store the moment it arrives, so the agent chain's structure
+ * — step numbers, status transitions, tool cards, the final-content split and
  * the expand/collapse choreography that reads all of it — stays exactly on
  * the backend's timing. Only the paced TEXT FIELDS inside the forwarded copy
  * are truncated to the revealed length and then grow on the reveal timer.
- * When the stream moves on to a new segment, the previous segment's reveal
- * snaps to its full text (a finalized step never keeps half-typed content,
- * mirroring what the store would hold without this module). The only
- * messages ever held back are stream_state idle and stream_complete, and
- * only until the last reveal has caught up, so the typing indicator stays
- * honest and the history handoff runs on fully revealed text.
+ * When the stream moves on (a new step number, or the final bubble taking
+ * over), the previous segment's reveal snaps to its full text (a finalized
+ * step never keeps half-typed content, mirroring what the store would hold
+ * without this module). Text that slides back from the final bubble into a
+ * step (a retraction) continues revealing where it left off instead of
+ * retyping from zero. The only messages ever held back are stream_state idle
+ * and stream_complete, and only until the last reveal has caught up, so the
+ * typing indicator stays honest and the stream_complete history handoff runs
+ * on fully revealed text.
  *
- * Why truncation is safe: every turn_stream message carries the FULL
- * accumulated content of the current segment, so a growing prefix is exactly
- * what the store already sees mid-generation. Tool argument rows render from
- * the backend's leniently parsed _metadata.args_parsed object; a partially
- * revealed copy is the same shape the backend itself stamps while arguments
- * are still streaming (complete keys, the boundary key sliced).
+ * Why truncation is safe: every snapshot carries the FULL accumulated text of
+ * the object it updates (render-by-full-replacement), so a growing prefix is
+ * exactly what the store already sees mid-generation. Tool argument rows
+ * render from the backend's leniently parsed _metadata.args_parsed object; a
+ * partially revealed copy is the same shape the backend itself stamps while
+ * arguments are still streaming (complete keys, the boundary key sliced).
  *
  * Settings: initial values arrive as window.SPEED_LIMIT_CONFIG (head-slot
  * template), then update live — the module broadcasts {type:
@@ -58,7 +73,7 @@
     if (typeof original !== 'function') return; // core ws layer not loaded (login page): stay out of the way
 
     const STREAM_TYPES = ['content', 'reasoning', 'tool'];
-    const PACED_TYPES = { content: 1, reasoning: 1, tool_calls: 1 };
+    const FINAL_IDENT = 'final';
 
     // ---- live settings ---------------------------------------------------
     const settings = {
@@ -145,19 +160,21 @@
     let pools = new Map();         // poolKey -> {budget} — fractional character allowance
 
     // the one segment whose text is still being revealed:
-    // {ident, seg (latest cumulative snapshot), units, done}
+    // {ident, kind ('step'|'final'), seg (latest cumulative snapshot), units, done}
     let active = null;
     // end-of-stream messages (stream_state idle, stream_complete) waiting on
     // the active reveal; released in arrival order once it finishes
     let held = [];
     // last delivered revealed-lengths per segment identity, so a segment that
-    // resumes after finishing (or gets re-yielded with merged tool responses)
-    // continues where the store already is instead of retyping from zero
+    // resumes after finishing (or gets re-emitted with late tool responses)
+    // continues where the store already is instead of retyping from zero.
+    // Step numbers restart with every stream, so this cache is cleared at the
+    // start of each one (stream_state message_sending) and on sync/flush/drop.
     let lensCache = new Map();
 
     function str(v) { return typeof v === 'string' ? v : ''; }
 
-    function identOf(seg) { return seg.type + '|' + (seg.tool_call_id === undefined ? '' : seg.tool_call_id); }
+    function identOfStep(step) { return 'step:' + step.step; }
 
     // the text the tool call arg rows render for a parsed arg value
     function displayText(value) {
@@ -192,15 +209,19 @@
 
     function toolCallId(call, index) { return call.id || ('#' + index); }
 
-    // the paced text units of a segment. Each unit: {key, poolKey, fullLen, revealed}
-    // plus, for plain text segments, the segment field to truncate.
-    function buildUnits(seg, seedLens) {
+    // the paced text units of a snapshot. Each unit: {key, poolKey, fullLen, revealed}
+    // plus, for plain text fields, the field to truncate.
+    // kind 'step':  seg is the step object; kind 'final': seg is the messages array.
+    function buildUnits(kind, seg, seedLens) {
         const units = [];
 
-        if (seg.type === 'content' || seg.type === 'reasoning') {
-            const field = seg.type === 'content' ? 'content' : 'reasoning_content';
-            units.push({ key: seg.type, poolKey: seg.type, field: field, fullLen: str(seg[field]).length });
-        } else if (seg.type === 'tool_calls') {
+        if (kind === 'final') {
+            const msg = Array.isArray(seg) ? seg[0] : null;
+            units.push({ key: 'final', poolKey: 'content', field: 'content', fullLen: str(msg && msg.content).length });
+        } else {
+            units.push({ key: 'reasoning', poolKey: 'reasoning', field: 'reasoning_content', fullLen: str(seg.reasoning_content).length });
+            units.push({ key: 'content', poolKey: 'content', field: 'content', fullLen: str(seg.content).length });
+
             const calls = Array.isArray(seg.tool_calls) ? seg.tool_calls : [];
             calls.forEach(function (call, i) {
                 const id = toolCallId(call, i);
@@ -234,7 +255,7 @@
     function refreshUnits(item) {
         const previous = {};
         for (const unit of item.units) previous[unit.key] = unit.revealed;
-        const fresh = buildUnits(item.seg);
+        const fresh = buildUnits(item.kind, item.seg);
         for (const unit of fresh) {
             if (Number.isFinite(previous[unit.key])) unit.revealed = Math.min(previous[unit.key], unit.fullLen);
         }
@@ -251,6 +272,12 @@
         // reload-capable messages must not overtake deliveries already queued
         await chain;
         return original(data);
+    }
+
+    function wrapMsg(item, seg) {
+        return item.kind === 'final'
+            ? { type: 'turn_final', messages: seg }
+            : { type: 'turn_step', step: seg };
     }
 
     function cacheSet(ident, lens) {
@@ -274,12 +301,30 @@
     function buildCopy(item) {
         const seg = item.seg;
 
-        if (seg.type === 'tool_calls') {
+        if (item.kind === 'final') {
+            const unit = item.units.find(function (u) { return u.key === 'final'; });
+            const msg = Array.isArray(seg) ? seg[0] : null;
+            if (!msg || !unit || unit.revealed >= unit.fullLen) return seg;
+            const copy = Object.assign({}, msg);
+            copy.content = str(msg.content).slice(0, unit.revealed);
+            return [copy].concat(seg.slice(1));
+        }
+
+        const out = Object.assign({}, seg);
+
+        // step text fields: truncate whatever is still mid-reveal
+        for (const unit of item.units) {
+            if (unit.field && unit.revealed < unit.fullLen) {
+                out[unit.field] = str(seg[unit.field]).slice(0, unit.revealed);
+            }
+        }
+
+        const calls = Array.isArray(seg.tool_calls) ? seg.tool_calls : [];
+        if (calls.length) {
             const units = {};
             for (const unit of item.units) units[unit.key] = unit;
 
-            const calls = Array.isArray(seg.tool_calls) ? seg.tool_calls : [];
-            const outCalls = calls.map(function (call, i) {
+            out.tool_calls = calls.map(function (call, i) {
                 const id = toolCallId(call, i);
                 const argsUnit = units['args:' + id];
                 const respUnit = units['resp:' + id];
@@ -298,32 +343,24 @@
                 copy._metadata = copyMeta;
                 return copy;
             });
-
-            const out = Object.assign({}, seg);
-            out.tool_calls = outCalls;
-            return out;
         }
 
-        // plain text segment: truncate the growing field
-        const unit = item.units[0];
-        const out = Object.assign({}, seg);
-        out[unit.field] = str(seg[unit.field]).slice(0, unit.revealed);
         return out;
     }
 
     function deliverCopy(item) {
         trackCopy(item);
-        deliver({ type: 'turn_stream', turn: buildCopy(item) });
+        deliver(wrapMsg(item, buildCopy(item)));
     }
 
     function deliverFinal(item) {
         // the latest authoritative snapshot: full text and every final field
-        // (label, step_status, is_cmd, ...) land on the store exactly as they
+        // (label, status, is_cmd, ...) land on the store exactly as they
         // would without us — remember it as fully revealed
         const lens = {};
         for (const unit of item.units) lens[unit.key] = unit.fullLen;
         cacheSet(item.ident, lens);
-        deliver({ type: 'turn_stream', turn: item.seg });
+        deliver(wrapMsg(item, item.seg));
     }
 
     // ---- reveal lifecycle ----------------------------------------------------
@@ -436,6 +473,7 @@
         releaseHeld();
         stop();
         pools.clear();
+        lensCache.clear(); // step numbers restart with the new stream
     }
 
     function drop() {
@@ -448,28 +486,57 @@
     }
 
     // ---- message routing ---------------------------------------------------
-    function onTurnStream(data) {
-        const seg = data.turn;
-        const pacedType = seg && PACED_TYPES[seg.type];
+    function startReveal(ident, kind, seg, units) {
+        active = { ident: ident, kind: kind, seg: seg, units: units, done: false };
+        deliverCopy(active);
+        start();
+    }
 
-        if (!pacedType) {
-            // not a revealable segment, but it still belongs on the live
-            // store: finalize any reveal in flight before letting it through
+    function fullLens(units) {
+        const lens = {};
+        for (const unit of units) lens[unit.key] = unit.fullLen;
+        return lens;
+    }
+
+    function onTurnStep(data) {
+        const step = data.step;
+        if (!step || typeof step !== 'object' || step.step === undefined) {
             snapActive();
             return passthrough(data);
         }
 
-        const ident = identOf(seg);
+        const ident = identOfStep(step);
 
         if (active && active.ident === ident && !active.done) {
-            // update of the segment being revealed: forward the fresh
-            // structure right away (text stays truncated at the revealed
-            // lengths), so nothing built on the chain waits on the reveal
-            active.seg = seg;
+            // update of the step being revealed: forward the fresh structure
+            // right away (text stays truncated at the revealed lengths), so
+            // nothing built on the chain waits on the reveal
+            active.seg = step;
             refreshUnits(active);
             if (allRevealed(active)) finishActive();
             else { deliverCopy(active); start(); }
             return;
+        }
+
+        if (active && active.kind === 'step' && +step.step < +active.seg.step) {
+            // an older step caught up with us (a late tool response re-emits
+            // its owning step): its text was handed over in full already,
+            // keep it that way and let the snapshot through untouched
+            cacheSet(ident, fullLens(buildUnits('step', step)));
+            return passthrough(data);
+        }
+
+        // text sliding back from the final bubble into this step (a
+        // retraction) continues revealing where the bubble left off instead
+        // of retyping from zero: the folded content ends with the bubble's
+        // full text, so the carry-over offset is exact
+        let carry = null;
+        if (active && active.kind === 'final') {
+            const u = active.units.find(function (x) { return x.key === 'final'; });
+            const finalText = str(Array.isArray(active.seg) && active.seg[0] && active.seg[0].content);
+            if (u && finalText && str(step.content).endsWith(finalText)) {
+                carry = { revealed: u.revealed, full: finalText.length };
+            }
         }
 
         // a different segment (or the previous reveal already finished):
@@ -477,24 +544,65 @@
         snapActive();
 
         const seed = lensCache.get(ident) || null;
-        const units = buildUnits(seg, seed);
+        const units = buildUnits('step', step, seed);
+
+        if (carry) {
+            for (const unit of units) {
+                if (unit.key === 'content' && !(seed && Number.isFinite(seed[unit.key])) && unit.fullLen > 0) {
+                    const prefix = Math.max(unit.fullLen - carry.full, 0);
+                    unit.revealed = Math.min(prefix + carry.revealed, unit.fullLen);
+                }
+            }
+        }
+
         const unlimited = !units.length || units.every(function (u) { return rateFor(u.poolKey) <= 0; });
 
         if (unlimited || units.every(function (u) { return u.revealed >= u.fullLen; })) {
             // nothing to reveal (unlimited rate, or already fully revealed
             // from a previous delivery): stock delivery. remember the full
             // lengths so a later limited update can't truncate below them
-            const lens = {};
-            for (const unit of units) lens[unit.key] = unit.fullLen;
-            if (units.length) cacheSet(ident, lens);
+            if (units.length) cacheSet(ident, fullLens(units));
             return passthrough(data);
         }
 
-        // new segment: forward its structure immediately with the text at
-        // the revealed lengths, then drip the rest on the reveal timer
-        active = { ident: ident, seg: seg, units: units, done: false };
-        deliverCopy(active);
-        start();
+        startReveal(ident, 'step', step, units);
+    }
+
+    function onTurnFinal(data) {
+        const msgs = data.messages;
+
+        if (!(Array.isArray(msgs) && msgs.length === 1 && msgs[0] && typeof msgs[0] === 'object')) {
+            // an empty list is a retract (the answer slid back into the
+            // chain); multi-message snapshots are never paced. both belong
+            // on the live store as-is, after finalizing any reveal in flight
+            snapActive();
+            return passthrough(data);
+        }
+
+        if (active && active.ident === FINAL_IDENT && !active.done) {
+            // the answer bubble is growing: forward the structure right away,
+            // its text keeps revealing on the timer
+            active.seg = msgs;
+            refreshUnits(active);
+            if (allRevealed(active)) finishActive();
+            else { deliverCopy(active); start(); }
+            return;
+        }
+
+        // the final bubble takes over: the step being revealed is final now
+        snapActive();
+
+        const seed = lensCache.get(FINAL_IDENT) || null;
+        const units = buildUnits('final', msgs, seed);
+
+        const unlimited = !units.length || units.every(function (u) { return rateFor(u.poolKey) <= 0; });
+
+        if (unlimited || units.every(function (u) { return u.revealed >= u.fullLen; })) {
+            if (units.length) cacheSet(FINAL_IDENT, fullLens(units));
+            return passthrough(data);
+        }
+
+        startReveal(FINAL_IDENT, 'final', msgs, units);
     }
 
     window.handleWebSocketMessage = function (data) {
@@ -506,7 +614,8 @@
 
             if (!settings.enabled) return original(data);
 
-            if (type === 'turn_stream') return onTurnStream(data);
+            if (type === 'turn_step') return onTurnStep(data);
+            if (type === 'turn_final') return onTurnFinal(data);
 
             // hold the end-of-stream signals until the reveal has caught up:
             // keeps the typing indicator honest, keeps the native push guard
@@ -522,9 +631,13 @@
             if (type === 'sync' || type === 'chat_switched' || type === 'shutdown') { drop(); return passthrough(data); }
             if (type === 'token' && data.content && data.content.type === 'error') { drop(); return passthrough(data); }
 
-            // stream_state (non-idle) and an unheld stream_complete still
-            // must not overtake in-flight deliveries
-            if (type === 'stream_state' || type === 'stream_complete') return passthrough(data);
+            if (type === 'stream_state') {
+                // a new stream is starting: step numbers restart, so the
+                // revealed-length bookkeeping of the old one is stale
+                if (data.state === 'message_sending') lensCache.clear();
+                return passthrough(data);
+            }
+            if (type === 'stream_complete') return passthrough(data);
         } catch (e) {
             console.error('speed-limit: wrapper error, reverting to stock streaming:', e);
             drop();

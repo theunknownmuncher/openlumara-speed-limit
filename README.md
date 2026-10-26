@@ -64,26 +64,33 @@ tool_rate_overrides:
 The module is purely a webui extension — no core files are modified:
 
 - `webui/assets/js/speed_limit.js` wraps the core websocket message handler
-  (`handleWebSocketMessage` from `js/services/websockets.js`). Incoming
-  `turn_stream` messages already carry the *full accumulated* content of the
-  current segment, so the wrapper forwards **every message to the store the
+  (`handleWebSocketMessage` from `js/services/websockets.js`). The backend
+  ships the stream as `turn_step` / `turn_final` **cumulative snapshots**
+  (since upstream commit `c47b8d4` moved turn-grouping into core; before
+  that they were `turn_stream` segments — this module tracks the new shape).
+  Every snapshot carries the *full accumulated* content of the step / final
+  bubble it updates, so the wrapper forwards **every message to the store the
   moment it arrives** — only the paced text fields inside the forwarded copy
-  are truncated to the revealed length, then grow on the reveal timer. That
-  truncated prefix is exactly the shape the store sees during normal
-  streaming. Tool argument rows render from the backend's leniently parsed
-  `_metadata.args_parsed`; the wrapper reveals that object key-by-key (string
-  values slice mid-key), which is indistinguishable from native partial
-  parsing.
+  (`step.reasoning_content`, `step.content`, the final bubble's `content`,
+  `_metadata.args_parsed`, `_metadata.response`) are truncated to the
+  revealed length, then grow on the reveal timer. That truncated prefix is
+  exactly the shape the store sees during normal streaming. Tool argument
+  rows render from the backend's leniently parsed `_metadata.args_parsed`;
+  the wrapper reveals that object key-by-key (string values slice mid-key),
+  which is indistinguishable from native partial parsing.
 - Every stream type (and every tool with an override) has its own character
   budget pool, so thinking, answers and each tool reveal independently at
   their configured rates. Unlimited types are revealed at once, in order.
-- **Process steps are never affected.** Because every `turn_stream` message
-  reaches the store on the backend's timing, the agent chain's structure —
-  step numbers, `step_status` transitions, tool cards, the final-content
-  split and the expand/collapse choreography that reads all of it — behaves
-  exactly like stock. Only the text inside the steps reveals slower. When the
-  stream moves on to a new segment, the previous segment's reveal snaps to
-  its full text, so a finalized step never sits half-typed.
+- **Process steps are never affected.** Because every `turn_step` /
+  `turn_final` message reaches the store on the backend's timing, the agent
+  chain's structure — step numbers, status transitions, tool cards, the
+  final-content split and the expand/collapse choreography that reads all of
+  it — behaves exactly like stock. Only the text inside the steps reveals
+  slower. When the stream moves on to a new step (or the final answer bubble
+  takes over), the previous segment's reveal snaps to its full text, so a
+  finalized step never sits half-typed. When the answer bubble is retracted
+  back into the chain (the model kept going after writing text), the folded
+  text keeps revealing where it left off instead of retyping from zero.
 - The only messages ever held back are `stream_state: idle` and
   `stream_complete`, and only until the last reveal has caught up, so the
   history handoff always runs on fully revealed text and the "AI is typing"
@@ -99,10 +106,11 @@ The module is purely a webui extension — no core files are modified:
 ## Notes
 
 - If generation outruns the reveal, the final answer's remaining text keeps
-  appearing at the limited speed after generation ends (the handoff to the
-  finalized message waits for it). Raise the rate, or switch that limit off,
-  if you don't want that. Text inside process steps instead snaps to complete
-  when the stream moves on to the next step.
+  appearing at the limited speed after generation ends (`stream_complete` and
+  the handoff to the finalized history wait for the reveal to catch up).
+  Raise the rate, or switch that limit off, if you don't want that. Text
+  inside process steps instead snaps to complete when the stream moves on to
+  the next step.
 - Sending a new message while an old reveal is still draining flushes the
   remainder immediately, so nothing is ever lost or duplicated.
 - Saving from the panel requires `enable_admin_settings` (it writes config).

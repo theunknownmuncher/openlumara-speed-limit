@@ -107,7 +107,7 @@ class SpeedLimit(core.module.Module):
 
         # push the effective config to every connected webui client: settings
         # saves reload this module, and this is how the change lands live
-        await self.broadcast_config()
+        await self._broadcast_config()
 
     # -------------------------
     #   EFFECTIVE CONFIG
@@ -187,7 +187,7 @@ class SpeedLimit(core.module.Module):
             "enableWebuiExtension": bool(self.config.get("enable_webui_extension", True)),
         }
 
-    async def broadcast_config(self):
+    async def _broadcast_config(self):
         """push {type: speed_limit_config} to all connected webui clients so
         rate changes apply immediately, without a page reload"""
         websocket_manager = getattr(getattr(self.manager, "channel", None), "websocket_manager", None)
@@ -272,5 +272,5 @@ class SpeedLimit(core.module.Module):
         for key, value in updates.items():
             self.config.config.set(key, value)
 
-        await self.broadcast_config()
+        await self._broadcast_config()
         return self.result(self._effective_config())
